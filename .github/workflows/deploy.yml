@@ -1,27 +1,68 @@
 name: deploy-sso
 
-on: push
+on:
+  push:
+    branches: [main]            # (4) seulement la branche protégée
+
+permissions:
+  contents: read                # (8) moindre privilège
 
 env:
-  DB_PASSWORD: "SsoProd2026!"
-  DEPLOY_HOST: "prod-sso.infraserv.local"
+  IMAGE: ghcr.io/${{ github.repository }}/sso
+  IMAGE_TAG: ${{ github.sha }}  # (3)(11) tag immuable lié au commit
 
 jobs:
   unit_test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@main
+      - uses: actions/checkout@v4     # (7) version épinglée
       - run: echo "Executer la suite de tests ici"
 
-  package:
+  security_scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@main
+      - uses: actions/checkout@v4
+      - run: echo "Analyse des dependances et de l'image ici"   # (10)
+
+  package:
+    needs: [unit_test, security_scan]   # (5) pas de package si les tests échouent
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write                   # droit limité à ce job seulement
+    steps:
+      - uses: actions/checkout@v4
       - run: |
-          docker build -t infrasec/sso:latest .
-          docker push infrasec/sso:latest
+          docker build -t "$IMAGE:$IMAGE_TAG" .
+          docker push "$IMAGE:$IMAGE_TAG"
+          echo "Version=$IMAGE_TAG Run=${{ github.run_id }}" > release.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: release.txt             # (11) preuve de traçabilité
 
   deploy_prod:
+    needs: package
+    runs-on: ubuntu-latest
+    environment: production             # (6) relecteurs obligatoires
+    concurrency:
+      group: production                 # (9) un seul déploiement à la fois
+      cancel-in-progress: false
+    steps:
+      - run: ssh deploy@"$DEPLOY_HOST" "deploy.sh $IMAGE_TAG"   # (2) compte dédié
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}               # (1) via Secrets
+
+  smoke_test:
+    needs: deploy_prod
     runs-on: ubuntu-latest
     steps:
-      - run: ssh root@$DEPLOY_HOST "docker pull infrasec/sso:latest && docker restart sso"
+      - run: echo "Tester connexion, session, deconnexion"      # (10)
+
+  rollback_prod:
+    needs: [deploy_prod, smoke_test]
+    if: failure()                       # (10) ne s'exécute que si un job a échoué
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - run: echo "Redeployer la version precedente (tag a definir)"
