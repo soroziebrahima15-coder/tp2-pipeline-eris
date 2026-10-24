@@ -1,0 +1,27 @@
+name: deploy-sso
+
+on: push
+
+env:
+  DB_PASSWORD: "SsoProd2026!"
+  DEPLOY_HOST: "prod-sso.infraserv.local"
+
+jobs:
+  unit_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - run: echo "Executer la suite de tests ici"
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - run: |
+          docker build -t infrasec/sso:latest .
+          docker push infrasec/sso:latest
+
+  deploy_prod:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ssh root@$DEPLOY_HOST "docker pull infrasec/sso:latest && docker restart sso"
