@@ -33,8 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: |
-          docker build -t "$IMAGE:$IMAGE_TAG" .
-          docker push "$IMAGE:$IMAGE_TAG"
+          echo "Simulation build $IMAGE:$IMAGE_TAG"
           echo "Version=$IMAGE_TAG Run=${{ github.run_id }}" > release.txt
       - uses: actions/upload-artifact@v4
         with:
